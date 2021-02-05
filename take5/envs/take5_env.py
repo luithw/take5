@@ -11,18 +11,27 @@ class Take5Env(gym.Env):
     self.sides = sides
     self.debug = debug
 
-    self.max_card = 104
+    self.largest_card = 104
     self.max_hand = 10
-    self.table_rows = 4
-    self.points = np.ones(self.max_card+1)
+    self.n_rows = 4
+    self.points = np.ones(self.largest_card+1)
     self.points[0] = 0
     self.round = 0
-    for c in range(5, self.max_card, 5):
+    for c in range(5, self.largest_card, 5):
         self.points[c] = 2
-    for c in range(10, self.max_card, 10):
+    for c in range(10, self.largest_card, 10):
         self.points[c] = 3
-    for c in range(11, self.max_card, 11):
+    for c in range(11, self.largest_card, 11):
         self.points[c] = 5
+
+    self.reward_range = (0, 55)
+    self.action_space = spaces.Discrete(10)
+
+    # Prices contains the OHCL values for the last five prices
+    self.observation_space = spaces.Dict({
+      "table": spaces.Box(low=0, high=self.largest_card, shape=(self.n_rows, 5), dtype=np.int),
+      "hand": spaces.Box(low=0, high=self.largest_card, shape=(10,), dtype=np.int),
+    })
 
   def _draw_card(self, shape):
     drawn = self.deck[:np.prod(shape)].reshape(shape)
@@ -81,11 +90,11 @@ class Take5Env(gym.Env):
     return observation, -self.penalties[0], done, {}
 
   def reset(self):
-    self.deck = np.arange(1, self.max_card + 1, dtype=int)
+    self.deck = np.arange(1, self.largest_card + 1, dtype=int)
     np.random.shuffle(self.deck)
     self.hands = self._draw_card((self.sides, self.max_hand))
-    self.table = np.zeros((self.table_rows, 5), dtype=int)
-    self.table[:, 0] = self._draw_card(self.table_rows)
+    self.table = np.zeros((self.n_rows, 5), dtype=int)
+    self.table[:, 0] = self._draw_card(self.n_rows)
     self.table_points = np.take(self.points, self.table)
     self.accum_penalties = np.zeros(self.sides)
     observation = self.table, self.hands[0]
