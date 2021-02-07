@@ -47,12 +47,15 @@ class Take5Env(gym.Env):
 
   def step(self, action):
     played_cards = []
+    self.player_played_card = np.zeros(self.sides)
     for h, hand in enumerate(self.hands):
       if h==0:
         a = action
       else:
         a = hand.argmax()
-      played_cards.append((hand[a], h))
+      played_card = hand[a]
+      played_cards.append((played_card, h))
+      self.player_played_card[h] = played_card
       hand[a] = 0
     played_cards = np.array(played_cards, dtype=[('card', int), ('player', int)])
     played_cards = np.sort(played_cards, order='card')
@@ -101,13 +104,12 @@ class Take5Env(gym.Env):
     self.accum_penalties = np.zeros(self.sides)
     observation = {"table": self.table, "hand": self.hands[0]}
     self.round = 0
+    self.player_played_card = np.zeros(self.sides)
     return observation
 
   def render(self, mode='human', close=False):
-    print("===Round %i ====" % self.round)
+    print("=====Round %i======" % self.round)
     print("Table:")
     print(self.table)
-    print("Hands:")
-    print(self.hands)
-    print("Accumulative penalties:")
-    print(self.accum_penalties)
+    for player, (played, hand, penalty) in enumerate(zip(self.player_played_card, self.hands, self.accum_penalties)):
+      print("%i played %i, remaining cards: %r, penalty: %i" % (player, played, [c for c in hand if c], penalty))
