@@ -4,12 +4,14 @@ from gym.utils import seeding
 import numpy as np
 
 
+DEBUG = False
+
+
 class Take5Env(gym.Env):
   metadata = {'render.modes': ['human']}
 
-  def __init__(self, sides=2, debug=True):
+  def __init__(self, sides=2):
     self.sides = sides
-    self.debug = debug
 
     self.largest_card = 104
     self.max_hand = 10
@@ -63,7 +65,7 @@ class Take5Env(gym.Env):
         # Pick the row with the smallest points automatically
         row = self.table_points.sum(-1).argmin()
         col = 0
-        if self.debug:
+        if DEBUG:
           print("Player %i card: %i resetting row %i" % (player, card, row))
         self._reset_row(row, player)
       else:
@@ -73,11 +75,11 @@ class Take5Env(gym.Env):
         row = diff_argsort[diff > 0][0]
         col = self.table[row].argmax() + 1
         if col >= 5:
-          if self.debug:
+          if DEBUG:
             print("Player %i card: %i, appending to row: %i and take 5" % (player, card, row))
           self._reset_row(row, player)
           col = 0
-        elif self.debug:
+        elif DEBUG:
           print("Player %i card: %i, appending to row: %i, col: %i" % (player, card, row, col))
       self.table[row, col] = card
       self.table_points = np.take(self.points, self.table)
@@ -86,7 +88,7 @@ class Take5Env(gym.Env):
       done = True
     else:
       done = False
-    observation = self.table, self.hands[0]
+    observation = {"table": self.table, "hand": self.hands[0]}
     return observation, -self.penalties[0], done, {}
 
   def reset(self):
@@ -97,13 +99,15 @@ class Take5Env(gym.Env):
     self.table[:, 0] = self._draw_card(self.n_rows)
     self.table_points = np.take(self.points, self.table)
     self.accum_penalties = np.zeros(self.sides)
-    observation = self.table, self.hands[0]
+    observation = {"table": self.table, "hand": self.hands[0]}
+    self.round = 0
     return observation
 
   def render(self, mode='human', close=False):
+    print("===Round %i ====" % self.round)
     print("Table:")
     print(self.table)
     print("Hands:")
     print(self.hands)
-    print("Accumulative panelty")
+    print("Accumulative penalties:")
     print(self.accum_penalties)
