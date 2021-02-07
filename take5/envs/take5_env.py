@@ -41,8 +41,8 @@ class Take5Env(gym.Env):
     return drawn
 
   def _reset_row(self, row, player):
-    self.penalties[player] -= self.table_points.sum(-1)[row]
-    self.accum_penalties[player] -= self.table_points.sum(-1)[row]
+    self.penalties[player] += self.table_points.sum(-1)[row]
+    self.accum_penalties[player] += self.table_points.sum(-1)[row]
     self.table[row] = 0
 
   def step(self, action):
