@@ -50,8 +50,7 @@ class Take5Env(gym.Env):
     current_hand = self.hands[0]
     availability = (current_hand > 0).astype(float)
     if availability[action] == 0:
-      observation = {"table": self.table, "hand": self.hands[0]}
-      return observation, 0, False, {"legal_move": False}
+      return self._get_obs(), 0, False, {"legal_move": False}
 
     played_cards = []
     self.player_played_card = np.zeros(self.sides)
@@ -98,7 +97,6 @@ class Take5Env(gym.Env):
       done = True
     else:
       done = False
-    observation = {"table": self.table, "hand": self.hands[0]}
     reward = 0
     for i, penalty in enumerate(self.penalties):
       if i == 0:
@@ -107,7 +105,11 @@ class Take5Env(gym.Env):
         reward += penalty
     if DEBUG:
       print("Player reward: %i" % reward)
-    return observation, reward, done, {"legal_move": True}
+
+    return self._get_obs(), reward, done, {"legal_move": True}
+
+  def _get_obs(self):
+    return np.concatenate((self.table.flatten(), self.hands[0]))
 
   def reset(self):
     self.deck = np.arange(1, self.largest_card + 1, dtype=int)
@@ -120,7 +122,7 @@ class Take5Env(gym.Env):
     observation = {"table": self.table, "hand": self.hands[0]}
     self.round = 0
     self.player_played_card = np.zeros(self.sides)
-    return observation
+    return self._get_obs()
 
   def render(self, mode='human', close=False):
     print("=====Round %i======" % self.round)
