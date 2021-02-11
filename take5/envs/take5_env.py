@@ -140,7 +140,7 @@ class Take5Env(gym.Env):
     print("Table:")
     print(self.table)
     if self.illegal_moves_count:
-      print("Player 0 played card %i times." % self.illegal_moves_count)
+      print("Player 0 played illegal card %i times." % self.illegal_moves_count)
     else:
       for player, (played, hand, penalty) in enumerate(zip(self.player_played_card, self.hands, self.accum_penalties)):
           print("%i played %i, remaining cards: %r, penalty: %i" % (player, played, [c for c in hand if c], penalty))
