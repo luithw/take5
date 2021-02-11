@@ -28,6 +28,8 @@ class Take5Env(gym.Env):
 
     self.reward_range = (0, 55)
     self.action_space = spaces.Discrete(10)
+    self.illegal_moves_count = 0
+    self.illegal_moves_terminate_limit = 5
 
     # Prices contains the OHCL values for the last five prices
     self.observation_space = spaces.Dict({
@@ -50,7 +52,15 @@ class Take5Env(gym.Env):
     current_hand = self.hands[0]
     availability = (current_hand > 0).astype(float)
     if availability[action] == 0:
-      return self._get_obs(), 0, False, {"legal_move": False}
+      if self.illegal_moves_count < self.illegal_moves_terminate_limit:
+        self.illegal_moves_count += 1
+        done = False
+      else:
+        done = True
+      return self._get_obs(), 0, done, {"legal_move": self.illegal_moves_count}
+    else:
+      self.illegal_moves_count = 0
+
 
     played_cards = []
     self.player_played_card = np.zeros(self.sides)
@@ -122,6 +132,7 @@ class Take5Env(gym.Env):
     observation = {"table": self.table, "hand": self.hands[0]}
     self.round = 0
     self.player_played_card = np.zeros(self.sides)
+    self.illegal_moves_count = 0
     return self._get_obs()
 
   def render(self, mode='human', close=False):
