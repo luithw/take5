@@ -46,6 +46,13 @@ class Take5Env(gym.Env):
     self.table[row] = 0
 
   def step(self, action):
+    # Check if the action taken has a valid card, otherwise return 0 reward
+    current_hand = self.hands[0]
+    availability = (current_hand > 0).astype(float)
+    if availability[action] == 0:
+      observation = {"table": self.table, "hand": self.hands[0]}
+      return observation, 0, False, {"legal_move": False}
+
     played_cards = []
     self.player_played_card = np.zeros(self.sides)
     for h, hand in enumerate(self.hands):
@@ -92,7 +99,15 @@ class Take5Env(gym.Env):
     else:
       done = False
     observation = {"table": self.table, "hand": self.hands[0]}
-    return observation, -self.penalties[0], done, {}
+    reward = 0
+    for i, penalty in enumerate(self.penalties):
+      if i == 0:
+        reward -= penalty
+      else:
+        reward += penalty
+    if DEBUG:
+      print("Player reward: %i" % reward)
+    return observation, reward, done, {"legal_move": True}
 
   def reset(self):
     self.deck = np.arange(1, self.largest_card + 1, dtype=int)
