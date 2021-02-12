@@ -27,7 +27,7 @@ class Take5Env(gym.Env):
         self.points[c] = 5
 
     self.reward_range = (0, 55)
-    self.observation_space = spaces.Box(low=0, high=self.largest_card, shape=(self.n_rows*5+10), dtype=np.int)
+    self.observation_space = spaces.Box(low=0, high=self.largest_card, shape=(self.n_rows*5+10,), dtype=np.int)
     self.action_space = spaces.Discrete(10)
     self.illegal_moves_count = 0
     self.illegal_moves_terminate_limit = 5
