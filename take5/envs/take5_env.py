@@ -5,6 +5,7 @@ import numpy as np
 
 
 DEBUG = False
+ONE_HOT = True
 
 
 class Take5Env(gym.Env):
@@ -27,7 +28,7 @@ class Take5Env(gym.Env):
         self.points[c] = 5
 
     self.reward_range = (0, 55)
-    self.observation_space = spaces.Box(low=0, high=self.largest_card, shape=(self.n_rows*5+10,), dtype=np.int)
+    self.observation_space = spaces.Box(low=0, high=self.largest_card, shape=(self.n_rows * 5 + 10, self.largest_card + 1), dtype=np.int)
     self.action_space = spaces.Discrete(10)
     self.illegal_moves_count = 0
     self.illegal_moves_terminate_limit = 5
@@ -115,7 +116,10 @@ class Take5Env(gym.Env):
     return self._get_obs(), reward, done, {"legal_move": True}
 
   def _get_obs(self):
-    return np.concatenate((self.table.flatten(), self.hands[0]))
+    obs = np.concatenate((self.table.flatten(), self.hands[0]))
+    obs_one_hot = np.zeros([obs.size, self.largest_card + 1])
+    obs_one_hot[np.arange(obs.size), obs] = 1
+    return obs_one_hot
 
   def reset(self):
     self.deck = np.arange(1, self.largest_card + 1, dtype=int)
