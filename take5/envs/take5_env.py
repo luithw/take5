@@ -11,12 +11,13 @@ ONE_HOT = True
 class Take5Env(gym.Env):
   metadata = {'render.modes': ['human']}
 
-  def __init__(self, sides=2):
+  def __init__(self, sides=3):
     self.sides = sides
 
     self.largest_card = 104
     self.max_hand = 10
     self.n_rows = 4
+    self.n_table_cards = self.n_rows * 5
     self.points = np.ones(self.largest_card+1)
     self.points[0] = 0
     self.round = 0
@@ -28,7 +29,7 @@ class Take5Env(gym.Env):
         self.points[c] = 5
 
     self.reward_range = (0, 55)
-    self.observation_space = spaces.Box(low=0, high=self.largest_card, shape=(self.n_rows * 5 + 10, self.largest_card + 1), dtype=np.int)
+    self.observation_space = spaces.Box(low=0, high=self.largest_card, shape=(self.n_table_cards + self.max_hand, self.largest_card + 1), dtype=np.int)
     self.action_space = spaces.Discrete(10)
     self.illegal_moves_count = 0
     self.illegal_moves_terminate_limit = 5
@@ -119,6 +120,8 @@ class Take5Env(gym.Env):
     obs = np.concatenate((self.table.flatten(), self.hands[0]))
     obs_one_hot = np.zeros([obs.size, self.largest_card + 1])
     obs_one_hot[np.arange(obs.size), obs] = 1
+    self.table_points = np.take(self.points, self.table)
+    obs_one_hot[np.arange(self.n_table_cards), obs[:self.n_table_cards]] = self.table_points.flatten()
     return obs_one_hot
 
   def reset(self):
