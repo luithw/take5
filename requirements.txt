@@ -16,7 +16,6 @@ cloudpickle==1.6.0
 colorama==0.4.4
 colorful==0.5.4
 contextvars==2.4
-dataclasses==0.8
 dm-tree==0.1.5
 filelock==3.0.12
 flatbuffers==1.12
@@ -75,7 +74,6 @@ scipy==1.5.4
 six==1.15.0
 soupsieve==2.2
 tabulate==0.8.7
--e git+git@github.com:luithw/take5.git@fb4610a4b16e8dba15a5ff50288ca441d33726dd#egg=Take5_v0
 tensorboard==2.4.1
 tensorboard-plugin-wit==1.8.0
 tensorboardX==2.1
