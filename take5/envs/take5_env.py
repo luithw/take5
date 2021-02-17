@@ -2,18 +2,21 @@ import gym
 from gym import error, spaces, utils
 from gym.utils import seeding
 import numpy as np
+from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
 
 DEBUG = False
 ONE_HOT = True
 
 
-class Take5Env(gym.Env):
+class Take5Env(MultiAgentEnv):
   metadata = {'render.modes': ['human']}
 
-  def __init__(self, sides=3):
-    self.sides = sides
+  def __init__(self, config):
+    self.sides = config.get("sides", 3)
+    self.illegal_moves_limit = config.get("illegal_moves_limit", 3) * self.sides
 
+    self.players = ["p_" + str(i) for i in range(self.sides)]
     self.largest_card = 104
     self.max_hand = 10
     self.n_rows = 4
@@ -32,7 +35,6 @@ class Take5Env(gym.Env):
     self.observation_space = spaces.Box(low=0, high=self.largest_card, shape=(self.n_table_cards + self.max_hand, self.largest_card + 1), dtype=np.int)
     self.action_space = spaces.Discrete(10)
     self.illegal_moves_count = 0
-    self.illegal_moves_terminate_limit = 5
 
 
   def _draw_card(self, shape):
@@ -45,32 +47,30 @@ class Take5Env(gym.Env):
     self.accum_penalties[player] += self.table_points.sum(-1)[row]
     self.table[row] = 0
 
-  def step(self, action):
+  def step(self, action_dict):
     # Check if the action taken has a valid card, otherwise return 0 reward
-    current_hand = self.hands[0]
-    availability = (current_hand > 0).astype(float)
-    if availability[action] == 0:
-      if self.illegal_moves_count < self.illegal_moves_terminate_limit:
-        self.illegal_moves_count += 1
-        done = False
+    for player, hand in zip(self.players, self.hands):
+      availability = (hand > 0).astype(float)
+      action = action_dict[player]
+      if availability[action] == 0:
+        if self.illegal_moves_count < self.illegal_moves_limit:
+          self.illegal_moves_count += 1
+          done = False
+        else:
+          done = True
+        return self._get_obs(), 0, done, {"legal_move": self.illegal_moves_count}
       else:
-        done = True
-      return self._get_obs(), 0, done, {"legal_move": self.illegal_moves_count}
-    else:
-      self.illegal_moves_count = 0
+        self.illegal_moves_count = 0
 
 
     played_cards = []
     self.player_played_card = np.zeros(self.sides)
-    for h, hand in enumerate(self.hands):
-      if h==0:
-        a = action
-      else:
-        a = hand.argmax()
-      played_card = hand[a]
-      played_cards.append((played_card, h))
-      self.player_played_card[h] = played_card
-      hand[a] = 0
+    for i, (player, hand) in enumerate(zip(self.players, self.hands)):
+      action = action_dict[player]
+      played_card = hand[action]
+      played_cards.append((played_card, i))
+      self.player_played_card[i] = played_card
+      hand[action] = 0
     played_cards = np.array(played_cards, dtype=[('card', int), ('player', int)])
     played_cards = np.sort(played_cards, order='card')
     self.penalties = np.zeros(self.sides)
@@ -117,12 +117,15 @@ class Take5Env(gym.Env):
     return self._get_obs(), reward, done, {"legal_move": True}
 
   def _get_obs(self):
-    obs = np.concatenate((self.table.flatten(), self.hands[0]))
-    obs_one_hot = np.zeros([obs.size, self.largest_card + 1])
-    obs_one_hot[np.arange(obs.size), obs] = 1
-    self.table_points = np.take(self.points, self.table)
-    obs_one_hot[np.arange(self.n_table_cards), obs[:self.n_table_cards]] = self.table_points.flatten()
-    return obs_one_hot
+    all_obs = {}
+    for player, hand in zip(self.players, self.hands):
+      obs = np.concatenate((self.table.flatten(), hand))
+      obs_one_hot = np.zeros([obs.size, self.largest_card + 1])
+      obs_one_hot[np.arange(obs.size), obs] = 1
+      self.table_points = np.take(self.points, self.table)
+      obs_one_hot[np.arange(self.n_table_cards), obs[:self.n_table_cards]] = self.table_points.flatten()
+      all_obs[player] = obs_one_hot
+    return all_obs
 
   def reset(self):
     self.deck = np.arange(1, self.largest_card + 1, dtype=int)

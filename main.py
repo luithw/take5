@@ -1,9 +1,14 @@
 import gym
-import take5
+from take5.envs.take5_env import Take5Env
 
-env = gym.make('Take5-v0', sides=5)
+sides = 5
+
+env = Take5Env({"sides": sides})
 observation = env.reset()
 env.render()
 for i in range (10):
-  observation, reward, done, info = env.step(i)
+  action_dict = {}
+  for p in range(sides):
+    action_dict["p_%i" %p] = i
+  observation, reward, done, info = env.step(action_dict)
   env.render()
