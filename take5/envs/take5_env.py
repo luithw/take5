@@ -177,7 +177,7 @@ class Take5Env(MultiAgentEnv, gym.Env):
       if DEBUG:
         print("Player rewards: %r" % player_reward)
       if not self.multi_agent:
-        return player_reward
+        return player_reward.sum()
     return rewards
 
   def _get_dones(self, done):
