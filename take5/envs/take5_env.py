@@ -48,6 +48,8 @@ class Take5Env(MultiAgentEnv):
     self.table[row] = 0
 
   def step(self, action_dict):
+    self.penalties = np.zeros(self.sides)
+
     # Check if the action taken has a valid card, otherwise return 0 reward
     for player, hand in zip(self.players, self.hands):
       availability = (hand > 0).astype(float)
@@ -58,10 +60,9 @@ class Take5Env(MultiAgentEnv):
           done = False
         else:
           done = True
-        return self._get_obs(), 0, done, {"legal_move": self.illegal_moves_count}
+        return self._get_obs(), self._get_rewards(), self._get_dones(done), self._get_infos({"legal_move": False})
       else:
         self.illegal_moves_count = 0
-
 
     played_cards = []
     self.player_played_card = np.zeros(self.sides)
@@ -73,7 +74,6 @@ class Take5Env(MultiAgentEnv):
       hand[action] = 0
     played_cards = np.array(played_cards, dtype=[('card', int), ('player', int)])
     played_cards = np.sort(played_cards, order='card')
-    self.penalties = np.zeros(self.sides)
 
     for card, player in played_cards:
       diff = card - self.table.max(-1)
@@ -105,16 +105,8 @@ class Take5Env(MultiAgentEnv):
       done = True
     else:
       done = False
-    reward = 0
-    for i, penalty in enumerate(self.penalties):
-      if i == 0:
-        reward -= penalty
-      else:
-        reward += penalty
-    if DEBUG:
-      print("Player reward: %i" % reward)
 
-    return self._get_obs(), reward, done, {"legal_move": True}
+    return self._get_obs(), self._get_rewards(), self._get_dones(done), self._get_infos({"legal_move": True})
 
   def _get_obs(self):
     all_obs = {}
@@ -126,6 +118,22 @@ class Take5Env(MultiAgentEnv):
       obs_one_hot[np.arange(self.n_table_cards), obs[:self.n_table_cards]] = self.table_points.flatten()
       all_obs[player] = obs_one_hot
     return all_obs
+
+  def _get_rewards(self):
+    rewards = {}
+    for i, (player, penalty) in enumerate(zip(self.players, self.penalties)):
+      player_reward = np.copy(self.penalties)
+      player_reward[i] *= -1
+      rewards[player] = player_reward.sum()
+    if DEBUG:
+      print("Player rewards: %r" % rewards)
+    return rewards
+
+  def _get_dones(self, done):
+    return {"__all__": done}
+
+  def _get_infos(self, info):
+    return {player: info for player in self.players}
 
   def reset(self):
     self.deck = np.arange(1, self.largest_card + 1, dtype=int)

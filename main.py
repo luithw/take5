@@ -1,4 +1,3 @@
-import gym
 from take5.envs.take5_env import Take5Env
 
 sides = 5
