@@ -22,6 +22,7 @@ if __name__ == "__main__":
             "num_workers": args.workers,
             "env_config": {
                 "sides": 3,
+                "multi_agent": True
             },
         },
         stop={

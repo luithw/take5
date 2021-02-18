@@ -1,13 +1,13 @@
-from take5.envs.take5_env import Take5Env
+import gym
+import take5
 
-sides = 5
-
-env = Take5Env({"sides": sides})
+config = {"sides": 5, "multi_agent": False}
+env = gym.make('Take5-v0', config=config)
 observation = env.reset()
 env.render()
 for i in range (10):
-  action_dict = {}
-  for p in range(sides):
-    action_dict["p_%i" %p] = i
-  observation, reward, done, info = env.step(action_dict)
+  action = i
+  if config["multi_agent"]:
+    action = {player: action for player in observation.keys()}
+  observation, reward, done, info = env.step(action)
   env.render()
