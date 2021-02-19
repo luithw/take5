@@ -1,13 +1,36 @@
-from take5.envs.take5_env import Take5Env
+import gym
+import numpy as np
 
-sides = 5
+import take5
 
-env = Take5Env({"sides": sides})
-observation = env.reset()
-env.render()
-for i in range (10):
-  action_dict = {}
-  for p in range(sides):
-    action_dict["p_%i" %p] = i
-  observation, reward, done, info = env.step(action_dict)
-  env.render()
+TAKE_LARGEST = False
+config = {"sides": 5, "multi_agent": False}
+env = gym.make('Take5-v0', config=config)
+
+episodes = 100
+returns = []
+for e in range(episodes):
+  observation = env.reset()
+  for i in range(10):
+    episode_returns = 0
+    if TAKE_LARGEST:
+      action = env.hands[0].argmax()
+    else:
+      action = i
+    if config["multi_agent"]:
+      if TAKE_LARGEST:
+        action = {player: env.hands[p].argmax() for p, player in enumerate(observation.keys())}
+      else:
+        action = {player: i for player in observation.keys()}
+    observation, reward, done, info = env.step(action)
+    print(reward)
+    if config["multi_agent"]:
+      episode_returns += list(reward.values())[0]
+    else:
+      episode_returns += reward
+    env.render()
+  returns.append(episode_returns)
+
+returns = np.array(returns)
+print("Multi-agent: %r, take largest card policy: %r, Reward max: %f, mean: %f, min: %f" % (
+  config["multi_agent"], TAKE_LARGEST, returns.max(), returns.mean(), returns.min()))
