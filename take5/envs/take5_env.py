@@ -4,81 +4,111 @@ from gym.utils import seeding
 import numpy as np
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
-
-DEBUG = False
-ONE_HOT = True
+DEBUG = True
 
 
-class Take5Env(MultiAgentEnv):
+class Take5Env(MultiAgentEnv, gym.Env):
     metadata = {'render.modes': ['human']}
+    MAX_SIDES = 7
+    MIN_SIDES = 2
+    LARGEST_CARD = 104
+    MAX_HAND = 10
+    N_ROWS = 4
+    N_COLUMNS = 5
 
     def __init__(self, config):
+        self.N_CARDS_TABLE = self.N_ROWS * self.N_COLUMNS
+
+        self.multi_agent = config.get("multi_agent", False)
         self.sides = config.get("sides", 3)
-        self.illegal_moves_limit = config.get(
-            "illegal_moves_limit", 3) * self.sides
+        if self.sides < self.MIN_SIDES or self.sides > self.MAX_SIDES:
+            raise ValueError(f"Number of sides is outside range of {self.MIN_SIDES} - {self.MAX_SIDES}")
 
         self.players = ["p_" + str(i) for i in range(self.sides)]
-        self.largest_card = 104
-        self.max_hand = 10
-        self.n_rows = 4
-        self.n_columns = 5
-        self.n_table_cards = self.n_rows * self.n_columns
         self.round = 0
-        self.binary_values_per_card = int(np.ceil(np.log2(self.largest_card)))
 
-        self.points = np.ones(self.largest_card+1)
-        self.points[0] = 0
-        for c in range(5, self.largest_card, 5):
-            self.points[c] = 2
-        for c in range(10, self.largest_card, 10):
-            self.points[c] = 3
-        for c in range(11, self.largest_card, 11):
-            self.points[c] = 5
+        # Set the penalty associated with each card
+        self.card_penalties = np.ones(self.LARGEST_CARD + 1)
+        self.card_penalties[0] = 0
+        for c in range(5, self.LARGEST_CARD, 5):
+            self.card_penalties[c] = 2
+        for c in range(10, self.LARGEST_CARD, 10):
+            self.card_penalties[c] = 3
+        for c in range(11, self.LARGEST_CARD, 11):
+            self.card_penalties[c] = 5
 
-        # max positive reward when other player has to take 5 cards all with a penalty of 5
-        # max negative reward when current player has to take 5 cards all with a penalty of 5
+        # Max positive reward when all other players have to take 5 cards all with a penalty of 5
+        # Max negative reward when only the current player has to take 5 cards all with a penalty of 5
         self.reward_range = (-25.0, 25.0)
 
-        observation_width = self.n_table_cards + self.max_hand + 1  # +1 for the timer
-        # 7 numbers to binary encode the card and 1 boolean for highlighted
-        observation_height = self.binary_values_per_card + 1
-        self.observation_shape = (observation_width, observation_height)
+        # +2 to include the timer and number of sides in the state
+        self.observation_rows = self.N_CARDS_TABLE + self.MAX_HAND + 2
+        # (highlighted, has_card, card_value, mod5, mod10, mod11)
+        self.observation_columns = 6
+        self.observation_shape = (self.observation_rows, self.observation_columns)
         self.observation_space = spaces.Box(
             low=0.0, high=1.0, shape=self.observation_shape, dtype=np.float32)
 
         self.action_space = spaces.Discrete(3)
-        # self.illegal_moves_count = 0
 
     def _draw_card(self, shape):
-        drawn = self.deck[:np.prod(shape)].reshape(shape)
-        self.deck = self.deck[np.prod(shape):]
+        n_cards = np.prod(shape)
+        drawn = self.deck[:n_cards].reshape(shape)
+        self.deck = self.deck[n_cards:]
         return drawn
 
-    def _reset_row(self, row, player_ix):
-        self.penalties[player_ix] += self.table_points.sum(-1)[row]
-        self.total_penalties[player_ix] += self.table_points.sum(-1)[row]
+    def _take_row(self, row, player_ix):
+        table_card_penalties = np.take(self.card_penalties, self.table)
+        penalty = table_card_penalties[row].sum()
+        self.penalties[player_ix] += penalty
+        self.total_penalties[player_ix] += penalty
         self.table[row] = 0
+
+    def _parse_action(self, actions, player_ix, hand, hand_hl):
+        if self.multi_agent:
+            action = actions[self.players[player_ix]]
+        elif player_ix == 0:
+            action = actions
+        else:
+            # Use max card policy for all non-agents
+            card_idx = np.argmax(hand_hl)
+            to_select_card_idx = np.argmax(hand)
+            jumps = to_select_card_idx - card_idx
+            if jumps < 0:
+                action = 0
+            elif jumps > 0:
+                action = 1
+            else:
+                # current card is the highest so select it
+                action = 2
+
+        return action
 
     def get_action_meanings(self):
         return ['LEFT', 'RIGHT', 'PLAY']
 
-    def step(self, action_dict):
-        self.penalties = np.zeros(self.sides)
+    def step(self, actions):
+        if self.reset_played_cards:
+            self.player_played_card = np.zeros(self.sides, dtype=int)
+            self.reset_played_cards = False
 
         # Card selection controlls
         for player_ix, player_id in enumerate(self.players):
             if self.player_played_card[player_ix] != 0:
+                # Skip players that already selected a card
                 continue
 
             hand = self.hands[player_ix]
             hand_hl = self.hand_hl[player_ix]
-            action = action_dict[player_id]
+            action = self._parse_action(actions, player_ix, hand, hand_hl)
+
+            self.moves_left[player_ix] -= 1
 
             # Move highlight left with wrap around and skip already played cards
             if action == 0:
                 jumps = -1
                 card_idx = np.argmax(hand_hl)
-                while hand[(card_idx + jumps) % self.max_hand] == 0:
+                while hand[(card_idx + jumps) % self.MAX_HAND] == 0:
                     jumps -= 1
                 self.hand_hl[player_ix] = np.roll(hand_hl, jumps)
 
@@ -86,16 +116,30 @@ class Take5Env(MultiAgentEnv):
             elif action == 1:
                 jumps = 1
                 card_idx = np.argmax(hand_hl)
-                while hand[(card_idx + jumps) % self.max_hand] == 0:
+                while hand[(card_idx + jumps) % self.MAX_HAND] == 0:
                     jumps += 1
                 self.hand_hl[player_ix] = np.roll(hand_hl, jumps)
 
             # Play the currently highlighted card
-            elif action == 2:
+            if action == 2 or self.moves_left[player_ix] <= 0:
                 self.player_played_card[player_ix] = hand[self.hand_hl[player_ix]]
+                hand[self.hand_hl[player_ix]] = 0
+                cards_left = self.MAX_HAND - self.round - 1
+                self.moves_left[player_ix] = cards_left // 2
+                if cards_left > 0:
+                    jumps = cards_left // 2
+                    index = 0
+                    while jumps > 0 or hand[index] == 0:
+                        if hand[index] != 0:
+                            jumps -= 1
+                        index += 1
+                    self.hand_hl[player_ix] = np.zeros(self.MAX_HAND, dtype=bool)
+                    self.hand_hl[player_ix, index] = True
 
         # Check if all players have selected a card, then play the round
         if self.player_played_card.min() != 0:
+            self.penalties = np.zeros(self.sides)
+
             # Match player_ix with played card
             player_with_card = np.array(list(enumerate(self.player_played_card)), dtype=[
                 ('player', int), ('card', int)])
@@ -105,16 +149,17 @@ class Take5Env(MultiAgentEnv):
             for player_ix, card in player_with_card:
                 diff = card - self.table.max(-1)
                 if np.alltrue(diff < 0):
-                    # Resetting row
-                    # Pick the row with the smallest points automatically
-                    row = self.table_points.sum(-1).argmin()
+                    # Resetting row if the played card is smaller than all rows
+                    # Pick the row with the smallest penalty automatically
+                    table_card_penalties = np.take(self.card_penalties, self.table)
+                    row = table_card_penalties.sum(-1).argmin()
                     col = 0
                     if DEBUG:
                         print("Player %i card: %i resetting row %i" %
-                            (player_ix, card, row))
-                    self._reset_row(row, player_ix)
+                              (player_ix, card, row))
+                    self._take_row(row, player_ix)
                 else:
-                    # Appending row
+                    # Appending card to the row with closest value
                     diff_argsort = diff.argsort()
                     diff.sort()
                     row = diff_argsort[diff > 0][0]
@@ -123,20 +168,32 @@ class Take5Env(MultiAgentEnv):
                         if DEBUG:
                             print("Player %i card: %i, appending to row: %i and take 5" % (
                                 player_ix, card, row))
-                        self._reset_row(row, player_ix)
+                        self._take_row(row, player_ix)
                         col = 0
                     elif DEBUG:
                         print("Player %i card: %i, appending to row: %i, col: %i" %
-                            (player_ix, card, row, col))
+                              (player_ix, card, row, col))
+                # Place the player's card on the table
                 self.table[row, col] = card
-                self.table_points = np.take(self.points, self.table)
             self.round += 1
-            if self.round == self.max_hand:
-                done = True
-            else:
-                done = False
+            self.reset_played_cards = True
+
+        done = self.round == self.MAX_HAND
 
         return self._get_obs(), self._get_rewards(), self._get_dones(done), self._get_infos({})
+
+    def _play_cards(self, actions):
+        played_cards = []
+        self.player_played_card = np.zeros(self.sides)
+        for i, (player, hand) in enumerate(zip(self.players, self.hands)):
+            action = self._parse_action(actions, i, hand)
+            played_card = hand[action]
+            played_cards.append((played_card, i))
+            self.player_played_card[i] = played_card
+            hand[action] = 0
+        played_cards = np.array(played_cards, dtype=[('card', int), ('player', int)])
+        played_cards = np.sort(played_cards, order='card')
+        return played_cards
 
     def _get_obs(self):
         all_obs = {}
@@ -145,24 +202,48 @@ class Take5Env(MultiAgentEnv):
             # TODO: when implementing custom row selection this causes a bug
             if has_picked_card:
                 all_obs[player_id] = None
+                if not self.multi_agent:
+                    return None
                 continue
 
             cards = np.concatenate(
                 (self.table.flatten(), self.hands[player_ix]))
-            cards_binary = self._get_binary_encoding(cards)
+            cards_encoded = self._encode_cards(cards)
 
-            table_hl = np.repeat(self.table_row_hl[player_ix], self.n_columns)
+            table_hl = np.repeat(self.table_row_hl[player_ix], self.N_COLUMNS)
             highlight = np.concatenate((table_hl, self.hand_hl[player_ix]))
             highlight = highlight.astype(np.float32)
 
-            timer_binary = self._get_binary_encoding(
-                self.moves_left[player_ix], self.observation_shape[1])
+            timer_one_hot = np.zeros(self.observation_columns, dtype=np.float32)
+            timer_one_hot[self.moves_left[player_ix]] = 1.0
 
-            obs = np.hstack((np.expand_dims(highlight, -1), cards_binary))
-            obs = np.vstack((obs, timer_binary))
+            sides_one_hot = np.zeros(self.observation_columns, dtype=np.float32)
+            sides_one_hot[self.sides - 1] = 1.0
 
+            obs = np.hstack((np.expand_dims(highlight, -1), cards_encoded))
+            obs = np.vstack((obs, timer_one_hot))
+            obs = np.vstack((obs, sides_one_hot))
+
+            if not self.multi_agent:
+                return obs
             all_obs[player_id] = obs
         return all_obs
+
+    def _encode_cards(self, cards):
+        state = np.zeros((len(cards), 5), dtype=np.float32)
+        state[:, 0] = np.array(cards != 0, dtype=np.float32)
+        state[:, 1] = cards.astype(np.float32) / self.LARGEST_CARD
+
+        mod11 = cards % 11 == 0
+        mod10 = cards % 10 == 0
+        mod10_one_hot = np.logical_and(mod10, np.logical_not(mod11))
+        mod5 = cards % 5 == 0
+        mod5_one_hot = np.logical_and(mod5, np.logical_not(np.logical_or(mod10, mod11)))
+        state[:, 2] = mod5_one_hot.astype(np.float32)
+        state[:, 3] = mod10_one_hot.astype(np.float32)
+        state[:, 4] = mod11.astype(np.float32)
+
+        return state
 
     def _get_binary_encoding(self, values, base=None):
         if base is None:
@@ -173,53 +254,62 @@ class Take5Env(MultiAgentEnv):
 
     def _get_rewards(self):
         # Zero-sum rewards
-        rewards = self.penalties - self.penalties.sum()
-        rewards = {player_id: reward for player_id,
-                   reward in zip(self.players, self.penalties)}
+        float_penalties = -self.penalties.astype(np.float32)
+        rewards = float_penalties - float_penalties.mean()
+
         if DEBUG:
             print("Player rewards: %r" % rewards)
+        if not self.multi_agent:
+            return rewards[0]
+
+        rewards = {player_id: reward for player_id, reward in zip(self.players, rewards)}
         return rewards
 
     def _get_dones(self, done):
-        dones = {player_id: done for player_id in self.players}
-        dones["__all__"] = done
-        return dones
+        if self.multi_agent:
+            dones = {player_id: done for player_id in self.players}
+            dones["__all__"] = done
+            return dones
+
+        return done
 
     def _get_infos(self, info):
-        return {player_id: info for player_id in self.players}
+        if self.multi_agent:
+            return {player_id: info for player_id in self.players}
+        return info
 
     def reset(self):
         self.round = 0
 
-        self.deck = np.arange(1, self.largest_card + 1, dtype=int)
+        self.deck = np.arange(1, self.LARGEST_CARD + 1, dtype=int)
         np.random.shuffle(self.deck)
 
-        self.hands = self._draw_card((self.sides, self.max_hand))
-        self.table = np.zeros((self.n_rows, self.n_columns), dtype=int)
-        self.table[:, 0] = self._draw_card(self.n_rows)
+        self.hands = self._draw_card((self.sides, self.MAX_HAND))
+        self.table = np.zeros((self.N_ROWS, self.N_COLUMNS), dtype=int)
+        self.table[:, 0] = self._draw_card(self.N_ROWS)
 
-        self.table_row_hl = np.zeros((self.sides, self.n_rows), dtype=bool)
-        self.hand_hl = np.zeros((self.sides, self.max_hand), dtype=bool)
+        self.table_row_hl = np.zeros((self.sides, self.N_ROWS), dtype=bool)
+        self.hand_hl = np.zeros((self.sides, self.MAX_HAND), dtype=bool)
         # initially highlight the middle card in hand
-        self.hand_hl[:, self.max_hand // 2] = True
-        self.moves_left = np.zeros(self.sides)
-        self.moves_left += self.max_hand // 2
+        self.hand_hl[:, self.MAX_HAND // 2] = True
+        self.moves_left = np.zeros(self.sides, dtype=int)
+        self.moves_left += self.MAX_HAND // 2
 
-        self.table_points = np.take(self.points, self.table)
-        self.total_penalties = np.zeros(self.sides)
+        self.penalties = np.zeros(self.sides, dtype=int)
+        self.total_penalties = np.zeros(self.sides, dtype=int)
+        self.player_played_card = np.zeros(self.sides, dtype=int)
+        self.reset_played_cards = False
 
-        self.player_played_card = np.zeros(self.sides)
-        # self.illegal_moves_count = 0
         return self._get_obs()
 
     def render(self, mode='human', close=False):
         print("=====Round %i======" % self.round)
         print("Table:")
         print(self.table)
-        # if self.illegal_moves_count:
-        #     print("Player 0 played illegal card %i times." %
-        #           self.illegal_moves_count)
-        # else:
-        for player, (played, hand, penalty) in enumerate(zip(self.player_played_card, self.hands, self.total_penalties)):
-            print("%i played %i, remaining cards: %r, penalty: %i" %
-                  (player, played, [c for c in hand if c], penalty))
+        for player_ix in range(self.sides):
+            played = self.player_played_card[player_ix]
+            hand = self.hands[player_ix]
+            penalty = self.total_penalties[player_ix]
+            highlighted = self.hands[player_ix, self.hand_hl[player_ix]]
+            print("%i played %i, remaining cards: %r, highlighted: %i, penalty: %i" %
+                  (player_ix, played, [c for c in hand if c], highlighted, penalty))
