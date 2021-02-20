@@ -19,6 +19,7 @@ if __name__ == "__main__":
         config={
             "env": Take5Env,
             "num_workers": args.workers,
+            # "num_gpus": 0,
             "env_config": {
                 "sides": 3,
                 "multi_agent": args.self_play
@@ -27,6 +28,7 @@ if __name__ == "__main__":
         stop={
             "timesteps_total": args.steps,
         },
+        local_dir="../ray_results",
         checkpoint_at_end=True,
         checkpoint_freq=100_000,
         restore=args.restore
