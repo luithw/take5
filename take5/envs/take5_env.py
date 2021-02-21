@@ -4,7 +4,7 @@ from gym.utils import seeding
 import numpy as np
 from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
-DEBUG = True
+DEBUG = False
 
 
 class Take5Env(MultiAgentEnv, gym.Env):
@@ -64,12 +64,14 @@ class Take5Env(MultiAgentEnv, gym.Env):
         self.total_penalties[player_ix] += penalty
         self.table[row] = 0
 
-    def _parse_action(self, actions, player_ix, hand, hand_hl):
+    def _parse_action(self, actions, player_ix):
         if self.multi_agent:
             action = actions[self.players[player_ix]]
         elif player_ix == 0:
             action = actions
         else:
+            hand = self.hands[player_ix]
+            hand_hl = self.hand_hl[player_ix]
             # Use max card policy for all non-agents
             card_idx = np.argmax(hand_hl)
             to_select_card_idx = np.argmax(hand)
@@ -85,47 +87,49 @@ class Take5Env(MultiAgentEnv, gym.Env):
         return action
 
     def get_action_meanings(self):
-        return ['LEFT', 'RIGHT', 'PLAY']
+        return ['LEFT', 'RIGHT', 'SKIP']
+
+    def _move_highlight_card(self, player_ix, jump_direction):
+        hand = self.hands[player_ix]
+        hand_hl = self.hand_hl[player_ix]
+
+        jumps = jump_direction
+        card_idx = np.argmax(hand_hl)
+        while hand[(card_idx + jumps) % self.MAX_HAND] == 0:
+            jumps += jump_direction
+
+        self.hand_hl[player_ix] = np.roll(hand_hl, jumps)
 
     def step(self, actions):
         if self.reset_played_cards:
             self.player_played_card = np.zeros(self.sides, dtype=int)
             self.reset_played_cards = False
 
+        self.moves_left -= 1
+
         # Card selection controlls
         for player_ix, player_id in enumerate(self.players):
-            if self.player_played_card[player_ix] != 0:
-                # Skip players that already selected a card
-                continue
-
-            hand = self.hands[player_ix]
-            hand_hl = self.hand_hl[player_ix]
-            action = self._parse_action(actions, player_ix, hand, hand_hl)
-
-            self.moves_left[player_ix] -= 1
-
+            action = self._parse_action(actions, player_ix)
             # Move highlight left with wrap around and skip already played cards
             if action == 0:
-                jumps = -1
-                card_idx = np.argmax(hand_hl)
-                while hand[(card_idx + jumps) % self.MAX_HAND] == 0:
-                    jumps -= 1
-                self.hand_hl[player_ix] = np.roll(hand_hl, jumps)
-
+                self._move_highlight_card(player_ix, -1)
             # Move highlight right with wrap around and skip already played cards
             elif action == 1:
-                jumps = 1
-                card_idx = np.argmax(hand_hl)
-                while hand[(card_idx + jumps) % self.MAX_HAND] == 0:
-                    jumps += 1
-                self.hand_hl[player_ix] = np.roll(hand_hl, jumps)
+                self._move_highlight_card(player_ix, 1)
+            elif action == 2:
+                # Don't do anything on SKIP action
+                pass
+
+        # When the timer runs out, play the round
+        if self.moves_left <= 0:
+            cards_left = self.MAX_HAND - self.round - 1
+            self.moves_left = cards_left // 2
 
             # Play the currently highlighted card
-            if action == 2 or self.moves_left[player_ix] <= 0:
+            for player_ix, player_id in enumerate(self.players):
+                hand = self.hands[player_ix]
                 self.player_played_card[player_ix] = hand[self.hand_hl[player_ix]]
-                hand[self.hand_hl[player_ix]] = 0
-                cards_left = self.MAX_HAND - self.round - 1
-                self.moves_left[player_ix] = cards_left // 2
+                hand[self.hand_hl[player_ix]] = 0  # remove card from hand
                 if cards_left > 0:
                     jumps = cards_left // 2
                     index = 0
@@ -136,8 +140,6 @@ class Take5Env(MultiAgentEnv, gym.Env):
                     self.hand_hl[player_ix] = np.zeros(self.MAX_HAND, dtype=bool)
                     self.hand_hl[player_ix, index] = True
 
-        # Check if all players have selected a card, then play the round
-        if self.player_played_card.min() != 0:
             self.penalties = np.zeros(self.sides)
 
             # Match player_ix with played card
@@ -182,30 +184,9 @@ class Take5Env(MultiAgentEnv, gym.Env):
 
         return self._get_obs(), self._get_rewards(), self._get_dones(done), self._get_infos({})
 
-    def _play_cards(self, actions):
-        played_cards = []
-        self.player_played_card = np.zeros(self.sides)
-        for i, (player, hand) in enumerate(zip(self.players, self.hands)):
-            action = self._parse_action(actions, i, hand)
-            played_card = hand[action]
-            played_cards.append((played_card, i))
-            self.player_played_card[i] = played_card
-            hand[action] = 0
-        played_cards = np.array(played_cards, dtype=[('card', int), ('player', int)])
-        played_cards = np.sort(played_cards, order='card')
-        return played_cards
-
     def _get_obs(self):
         all_obs = {}
         for player_ix, player_id in enumerate(self.players):
-            has_picked_card = self.player_played_card[player_ix] != 0
-            # TODO: when implementing custom row selection this causes a bug
-            if has_picked_card:
-                all_obs[player_id] = None
-                if not self.multi_agent:
-                    return None
-                continue
-
             cards = np.concatenate(
                 (self.table.flatten(), self.hands[player_ix]))
             cards_encoded = self._encode_cards(cards)
@@ -215,7 +196,7 @@ class Take5Env(MultiAgentEnv, gym.Env):
             highlight = highlight.astype(np.float32)
 
             timer_one_hot = np.zeros(self.observation_columns, dtype=np.float32)
-            timer_one_hot[self.moves_left[player_ix]] = 1.0
+            timer_one_hot[self.moves_left] = 1.0
 
             sides_one_hot = np.zeros(self.observation_columns, dtype=np.float32)
             sides_one_hot[self.sides - 1] = 1.0
@@ -235,13 +216,14 @@ class Take5Env(MultiAgentEnv, gym.Env):
         state[:, 1] = cards.astype(np.float32) / self.LARGEST_CARD
 
         mod11 = cards % 11 == 0
+        mod11_one_hot = np.logical_and(mod11, cards != 0)
         mod10 = cards % 10 == 0
         mod10_one_hot = np.logical_and(mod10, np.logical_not(mod11))
         mod5 = cards % 5 == 0
         mod5_one_hot = np.logical_and(mod5, np.logical_not(np.logical_or(mod10, mod11)))
         state[:, 2] = mod5_one_hot.astype(np.float32)
         state[:, 3] = mod10_one_hot.astype(np.float32)
-        state[:, 4] = mod11.astype(np.float32)
+        state[:, 4] = mod11_one_hot.astype(np.float32)
 
         return state
 
@@ -292,8 +274,7 @@ class Take5Env(MultiAgentEnv, gym.Env):
         self.hand_hl = np.zeros((self.sides, self.MAX_HAND), dtype=bool)
         # initially highlight the middle card in hand
         self.hand_hl[:, self.MAX_HAND // 2] = True
-        self.moves_left = np.zeros(self.sides, dtype=int)
-        self.moves_left += self.MAX_HAND // 2
+        self.moves_left = self.MAX_HAND // 2
 
         self.penalties = np.zeros(self.sides, dtype=int)
         self.total_penalties = np.zeros(self.sides, dtype=int)

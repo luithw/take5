@@ -42,8 +42,13 @@ def test_playing(multi_agent, sides):
             assert len(reward.keys()) == sides
             assert "__all__" in done.keys()
             assert len(info.keys()) == sides
+            for key in observation.keys():
+                assert type(observation[key]) == np.ndarray
+                assert type(reward[key]) == np.float32
+                assert type(done[key]) == bool
+                assert type(info[key]) == dict
         else:
-            assert type(observation) == np.ndarray or observation is None
+            assert type(observation) == np.ndarray
             assert type(reward) == np.float32
             assert type(done) == bool
             assert type(info) == dict
