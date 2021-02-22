@@ -13,6 +13,7 @@ if __name__ == "__main__":
     parser.add_argument("--workers", type=int, default=5)
     parser.add_argument("--restore", type=str, help="Checkpoint dir to restore from")
     parser.add_argument("--self_play", type=bool, default=True)
+    parser.add_argument("--name", type=str, default=None)
     args = parser.parse_args()
     tune.run(
         args.agent,
@@ -29,5 +30,6 @@ if __name__ == "__main__":
         },
         checkpoint_at_end=True,
         checkpoint_freq=100_000,
-        restore=args.restore
+        restore=args.restore,
+        name=args.name
     )
