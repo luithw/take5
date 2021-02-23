@@ -9,10 +9,11 @@ if __name__ == "__main__":
     ray.init(ignore_reinit_error=True)
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent", type=str, default="PPO")
-    parser.add_argument("--steps", type=int, default=20_000_000)
+    parser.add_argument("--steps", type=int, default=40_000_000)
     parser.add_argument("--workers", type=int, default=5)
     parser.add_argument("--restore", type=str, help="Checkpoint dir to restore from")
     parser.add_argument("--self_play", type=bool, default=True)
+    parser.add_argument("--name", type=str, default=None)
     args = parser.parse_args()
     tune.run(
         args.agent,
@@ -31,5 +32,6 @@ if __name__ == "__main__":
         local_dir="../ray_results",
         checkpoint_at_end=True,
         checkpoint_freq=100_000,
-        restore=args.restore
+        restore=args.restore,
+        name=args.name
     )
