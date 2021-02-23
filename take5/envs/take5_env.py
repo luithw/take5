@@ -161,8 +161,8 @@ class Take5Env(MultiAgentEnv, gym.Env):
       obs = np.concatenate((self.table.flatten(), hand))
       obs_one_hot = np.zeros([obs.size, self.largest_card + 1])
       obs_one_hot[np.arange(obs.size), obs] = 1
-      self.table_card_points = np.take(self.card_points, self.table)
-      obs_one_hot[np.arange(self.n_table_cards), obs[:self.n_table_cards]] = self.table_card_points.flatten()
+      card_points = np.take(self.card_points, obs)
+      obs_one_hot[np.arange(len(card_points)), obs] = card_points
       all_obs[player] = obs_one_hot
       if not self.multi_agent:
         return obs_one_hot

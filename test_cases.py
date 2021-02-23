@@ -39,7 +39,7 @@ def test_playing(multi_agent, sides, play_illegal):
       assert len(info.keys()) == sides
     else:
       assert type(observation) == np.ndarray
-      assert type(reward) == np.ndarray
+      assert type(reward) == np.float64
       assert type(done) == bool
       assert type(info) == dict
       if play_illegal and i == config["illegal_moves_limit"] + 1:
