@@ -7,7 +7,7 @@ from ray.rllib.env.multi_agent_env import MultiAgentEnv
 DEBUG = False
 
 
-class Take5Env(MultiAgentEnv, gym.Env):
+class Take5Env(gym.Env):
     metadata = {'render.modes': ['human']}
     MAX_SIDES = 7
     MIN_SIDES = 2
@@ -15,6 +15,7 @@ class Take5Env(MultiAgentEnv, gym.Env):
     MAX_HAND = 10
     N_ROWS = 4
     N_COLUMNS = 5
+    PENALTIES = [2, 3, 5]  # must be in ascending order
 
     def __init__(self, config):
         self.N_CARDS_TABLE = self.N_ROWS * self.N_COLUMNS
@@ -31,11 +32,11 @@ class Take5Env(MultiAgentEnv, gym.Env):
         self.card_penalties = np.ones(self.LARGEST_CARD + 1)
         self.card_penalties[0] = 0
         for c in range(5, self.LARGEST_CARD, 5):
-            self.card_penalties[c] = 2
+            self.card_penalties[c] = self.PENALTIES[0]
         for c in range(10, self.LARGEST_CARD, 10):
-            self.card_penalties[c] = 3
+            self.card_penalties[c] = self.PENALTIES[1]
         for c in range(11, self.LARGEST_CARD, 11):
-            self.card_penalties[c] = 5
+            self.card_penalties[c] = self.PENALTIES[2]
 
         # Max positive reward when all other players have to take 5 cards all with a penalty of 5
         # Max negative reward when only the current player has to take 5 cards all with a penalty of 5
@@ -184,6 +185,19 @@ class Take5Env(MultiAgentEnv, gym.Env):
 
         return self._get_obs(), self._get_rewards(), self._get_dones(done), self._get_infos({})
 
+    # def _get_obs(self):
+    #     all_obs = {}
+    #     for player, hand in zip(self.players, self.hands):
+    #         obs = np.concatenate((self.table.flatten(), hand))
+    #         obs_one_hot = np.zeros([obs.size, self.largest_card + 1])
+    #         obs_one_hot[np.arange(obs.size), obs] = 1
+    #         card_points = np.take(self.card_points, obs)
+    #         obs_one_hot[np.arange(len(card_points)), obs] = card_points
+    #         all_obs[player] = obs_one_hot
+    #         if not self.multi_agent:
+    #             return obs_one_hot
+    #     return all_obs
+
     def _get_obs(self):
         all_obs = {}
         for player_ix, player_id in enumerate(self.players):
@@ -214,25 +228,18 @@ class Take5Env(MultiAgentEnv, gym.Env):
         state = np.zeros((len(cards), 5), dtype=np.float32)
         state[:, 0] = np.array(cards != 0, dtype=np.float32)
         state[:, 1] = cards.astype(np.float32) / self.LARGEST_CARD
-
-        mod11 = cards % 11 == 0
-        mod11_one_hot = np.logical_and(mod11, cards != 0)
-        mod10 = cards % 10 == 0
-        mod10_one_hot = np.logical_and(mod10, np.logical_not(mod11))
-        mod5 = cards % 5 == 0
-        mod5_one_hot = np.logical_and(mod5, np.logical_not(np.logical_or(mod10, mod11)))
-        state[:, 2] = mod5_one_hot.astype(np.float32)
-        state[:, 3] = mod10_one_hot.astype(np.float32)
-        state[:, 4] = mod11_one_hot.astype(np.float32)
-
+        penalties = np.take(self.card_penalties, cards)
+        state[:, 2] = (penalties == self.PENALTIES[0]).astype(np.float32)
+        state[:, 3] = (penalties == self.PENALTIES[1]).astype(np.float32)
+        state[:, 4] = (penalties == self.PENALTIES[2]).astype(np.float32)
         return state
 
-    def _get_binary_encoding(self, values, base=None):
-        if base is None:
-            base = self.binary_values_per_card
-
-        pows_of_two = 1 << np.arange(base)
-        return ((values[:, None] & pows_of_two) > 0).astype(np.float32)
+    # def _get_binary_encoding(self, values, base=None):
+    #     if base is None:
+    #         base = self.binary_values_per_card
+    #
+    #     pows_of_two = 1 << np.arange(base)
+    #     return ((values[:, None] & pows_of_two) > 0).astype(np.float32)
 
     def _get_rewards(self):
         # Zero-sum rewards
